@@ -22,13 +22,21 @@
 #include <SDL_timer.h>
 #include <iostream>
 #include <time.h>
+#include "nfc.h"
+#include <pigpiod_if2.h>
+#include <string.h>
+#include <stdio.h>
+#include "guis/GuiInfoPopup.h"
 #ifdef WIN32
 #include <Windows.h>
 #endif
 
 #include <FreeImage.h>
 
+namespace fs = boost::filesystem;
 bool scrape_cmdline = false;
+bool pigpiod_available = false;
+int connectedPi;
 
 bool parseArgs(int argc, char* argv[])
 {
@@ -333,6 +341,16 @@ int main(int argc, char* argv[])
 	//always close the log on exit
 	atexit(&onExit);
 
+    connectedPi = pigpio_start(NULL,NULL);
+    if(connectedPi  < 0)
+        pigpiod_available = false;
+    else
+    {
+        pigpiod_available = true;
+        set_mode(connectedPi,20,PI_INPUT);
+        set_pull_up_down(connectedPi,20,PI_PUD_UP);
+    }
+
 	Window window;
 	SystemScreenSaver screensaver(&window);
 	PowerSaver::init();
@@ -386,6 +404,9 @@ int main(int argc, char* argv[])
 		return run_scraper_cmdline();
 	}
 
+	//dont generate joystick events while we're loading (hopefully fixes "automatically started emulator" bug)
+	SDL_JoystickEventState(SDL_DISABLE);
+
 	// preload what we can right away instead of waiting for the user to select it
 	// this makes for no delays when accessing content, but a longer startup time
 	ViewController::get()->preload();
@@ -406,15 +427,86 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	//generate joystick events since we're done loading
+	SDL_JoystickEventState(SDL_ENABLE);
+
 	int lastTime = SDL_GetTicks();
 	int ps_time = SDL_GetTicks();
+    int buttonTime, buttonLastState = 0;
 
 	bool running = true;
+	bool ps_standby = false;
 
 	while(running)
 	{
 		SDL_Event event;
 		bool ps_standby = PowerSaver::getState() && (int) SDL_GetTicks() - ps_time > PowerSaver::getMode();
+
+		if(pigpiod_available)
+        {
+            if(gpio_read(connectedPi,20) == 0 && !buttonLastState)
+            {
+                buttonTime = SDL_GetTicks();
+                buttonLastState = 1;
+            }
+            else if(gpio_read(connectedPi,20) == 1 && buttonLastState)
+            {
+				int buttonDeltaTime = SDL_GetTicks() - buttonTime;
+                if(buttonDeltaTime < 4000)  //short-press
+                {
+                    //read nfc tag and start game
+
+                    game temp;
+                    temp = readGame();
+					if(temp.gametype != "")
+					{
+						std::vector<SystemData*> Systems = SystemData::sSystemVector;
+						for(auto i = Systems.begin(); i != Systems.end(); i++)
+						{
+							if((*i)->getName() == temp.gametype)
+							{
+								const std::unordered_map<std::string, FileData*>& children = (*i)->getRootFolder()->getChildrenByFilename();
+								bool found = children.find(temp.filename) != children.end();
+								if(found)
+								{
+									FileData* game = children.at(temp.filename);
+									ViewController::get()->launch(game);
+								}
+								else
+								{
+									GuiInfoPopup* s = new GuiInfoPopup(&window, "Game on tag not found in library", 4000);
+									window.setInfoPopup(s);
+								}
+							}
+						}
+					}
+					else
+					{
+						GuiInfoPopup* s = new GuiInfoPopup(&window, "Reading from NFC tag failed", 4000);
+						window.setInfoPopup(s);						
+					}
+                }
+                else    //long-press
+                {
+                    //read current game and write to nfc tag
+                    game temp;
+                    temp.gametype = ViewController::get()->getGameListView(ViewController::get()->getState().getSystem()).get()->getCursor()->getSystemName();
+                    temp.filename = ViewController::get()->getGameListView(ViewController::get()->getState().getSystem()).get()->getCursor()->getFileName();
+					fflush(stdout);
+					if(writeGame(temp))
+					{
+						GuiInfoPopup* s = new GuiInfoPopup(&window, "Writing to NFC tag successful", 4000);
+						window.setInfoPopup(s);				
+					}
+					else
+					{
+						GuiInfoPopup* s = new GuiInfoPopup(&window, "Writing to NFC tag failed", 4000);
+						window.setInfoPopup(s);
+					}
+                }
+		buttonLastState = 0;
+            }
+        }
 
 		if(ps_standby ? SDL_WaitEventTimeout(&event, PowerSaver::getTimeout()) : SDL_PollEvent(&event))
 		{
