@@ -1,6 +1,7 @@
 //EmulationStation, a graphical front-end for ROM browsing. Created by Alec "Aloshi" Lofquist.
 //http://www.aloshi.com
 
+#include <boost/filesystem.hpp>
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiMsgBox.h"
 #include "utils/FileSystemUtil.h"
@@ -16,7 +17,6 @@
 #include "ScraperCmdLine.h"
 #include "Settings.h"
 #include "SystemData.h"
-#include <boost/filesystem.hpp>
 #include "SystemScreenSaver.h"
 #include <SDL_events.h>
 #include <SDL_main.h>
