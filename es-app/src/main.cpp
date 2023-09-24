@@ -1,7 +1,6 @@
 //EmulationStation, a graphical front-end for ROM browsing. Created by Alec "Aloshi" Lofquist.
 //http://www.aloshi.com
 
-#include <boost/filesystem.hpp>
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiMsgBox.h"
 #include "utils/FileSystemUtil.h"
@@ -23,7 +22,6 @@
 #include <SDL_timer.h>
 #include <iostream>
 #include <time.h>
-#include <boost/locale.hpp>
 #include "nfc.h"
 #include <pigpiod_if2.h>
 #include <string.h>
@@ -35,7 +33,6 @@
 
 #include <FreeImage.h>
 
-namespace fs = boost::filesystem;
 bool scrape_cmdline = false;
 bool pigpiod_available = false;
 int connectedPi;
