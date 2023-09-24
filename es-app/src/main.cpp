@@ -1,11 +1,13 @@
 //EmulationStation, a graphical front-end for ROM browsing. Created by Alec "Aloshi" Lofquist.
 //http://www.aloshi.com
 
+#include "nfc.h"
+#include <pigpiod_if2.h>
 #include "guis/GuiDetectDevice.h"
 #include "guis/GuiMsgBox.h"
+#include "guis/GuiInfoPopup.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/ProfilingUtil.h"
-#include "nfc.h"
 #include "views/ViewController.h"
 #include "CollectionSystemManager.h"
 #include "EmulationStation.h"
@@ -23,10 +25,8 @@
 #include <SDL_timer.h>
 #include <iostream>
 #include <time.h>
-#include <pigpiod_if2.h>
 #include <string.h>
 #include <stdio.h>
-#include "guis/GuiInfoPopup.h"
 #ifdef WIN32
 #include <Windows.h>
 #endif
