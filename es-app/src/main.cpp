@@ -16,12 +16,14 @@
 #include "ScraperCmdLine.h"
 #include "Settings.h"
 #include "SystemData.h"
+#include <boost/filesystem.hpp>
 #include "SystemScreenSaver.h"
 #include <SDL_events.h>
 #include <SDL_main.h>
 #include <SDL_timer.h>
 #include <iostream>
 #include <time.h>
+#include <boost/locale.hpp>
 #include "nfc.h"
 #include <pigpiod_if2.h>
 #include <string.h>
