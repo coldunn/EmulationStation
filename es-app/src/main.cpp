@@ -5,6 +5,7 @@
 #include "guis/GuiMsgBox.h"
 #include "utils/FileSystemUtil.h"
 #include "utils/ProfilingUtil.h"
+#include "nfc.h"
 #include "views/ViewController.h"
 #include "CollectionSystemManager.h"
 #include "EmulationStation.h"
@@ -22,7 +23,6 @@
 #include <SDL_timer.h>
 #include <iostream>
 #include <time.h>
-#include "nfc.h"
 #include <pigpiod_if2.h>
 #include <string.h>
 #include <stdio.h>
