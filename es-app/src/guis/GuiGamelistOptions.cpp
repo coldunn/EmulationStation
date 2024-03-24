@@ -10,6 +10,7 @@
 #include "FileSorts.h"
 #include "GuiMetaDataEd.h"
 #include "SystemData.h"
+#include "components/TextListComponent.h"
 
 GuiGamelistOptions::GuiGamelistOptions(Window* window, SystemData* system) : GuiComponent(window),
 	mSystem(system), mMenu(window, "OPTIONS"), mFromPlaceholder(false), mFiltersChanged(false),
@@ -76,6 +77,19 @@ GuiGamelistOptions::GuiGamelistOptions(Window* window, SystemData* system) : Gui
 			mMenu.addRow(row);
 		}
 
+		// add launch system screensaver
+		std::string screensaver_behavior = Settings::getInstance()->getString("ScreenSaverBehavior");
+		bool useGamelistMedia = screensaver_behavior == "random video" || (screensaver_behavior == "slideshow" && !Settings::getInstance()->getBool("SlideshowScreenSaverCustomMediaSource"));
+		bool rpConfigSelected = "retropie" == mSystem->getName();
+		bool collectionsSelected = mSystem->getName() == CollectionSystemManager::get()->getCustomCollectionsBundle()->getName();
+
+		if (!rpConfigSelected && useGamelistMedia && (!collectionsSelected || collectionsSelected && file->getType() == GAME)) {
+			row.elements.clear();
+			row.addElement(std::make_shared<TextComponent>(mWindow, "LAUNCH SYSTEM SCREENSAVER", Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+			row.makeAcceptInputHandler(std::bind(&GuiGamelistOptions::launchSystemScreenSaver, this));
+			mMenu.addRow(row);
+		}
+
 		// "sort list by" menuitem
 		mListSort = std::make_shared<SortList>(mWindow, "SORT GAMES BY", false);
 		for(unsigned int i = 0; i < FileSorts::SortTypes.size(); i++)
@@ -118,10 +132,21 @@ GuiGamelistOptions::GuiGamelistOptions(Window* window, SystemData* system) : Gui
 		mMenu.addRow(row);
 	}
 
+	if(UIModeController::getInstance()->isUIModeFull() && system == CollectionSystemManager::get()->getRandomCollection())
+	{
+		row.elements.clear();
+		row.addElement(std::make_shared<TextComponent>(mWindow, "GET NEW RANDOM GAMES", Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+		row.makeAcceptInputHandler(std::bind(&GuiGamelistOptions::recreateCollection, this));
+		mMenu.addRow(row);
+	}
+
 	if (UIModeController::getInstance()->isUIModeFull() && !mFromPlaceholder && !(mSystem->isCollection() && file->getType() == FOLDER))
 	{
 		row.elements.clear();
-		row.addElement(std::make_shared<TextComponent>(mWindow, "EDIT THIS GAME'S METADATA", Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
+		std::string lblTxt = std::string("EDIT THIS ");
+		lblTxt += std::string((file->getType() == FOLDER ? "FOLDER" : "GAME"));
+		lblTxt += std::string("'S METADATA");
+		row.addElement(std::make_shared<TextComponent>(mWindow, lblTxt, Font::get(FONT_SIZE_MEDIUM), 0x777777FF), true);
 		row.addElement(makeArrow(mWindow), false);
 		row.makeAcceptInputHandler(std::bind(&GuiGamelistOptions::openMetaDataEd, this));
 		mMenu.addRow(row);
@@ -147,8 +172,8 @@ GuiGamelistOptions::~GuiGamelistOptions()
 
 	if (mFiltersChanged || mMetadataChanged)
 	{
-		// put cursor in the middle if list longer than one display page
-		ViewController::get()->getGameListView(mSystem)->setViewportTop(-1);
+		// force refresh of cursor list position
+		ViewController::get()->getGameListView(mSystem)->setViewportTop(TextListComponent<FileData>::REFRESH_LIST_CURSOR_POS);
 		// re-display the elements for whatever new or renamed game is selected
 		ViewController::get()->reloadGameListView(mSystem);
 		if (mFiltersChanged) {
@@ -158,11 +183,35 @@ GuiGamelistOptions::~GuiGamelistOptions()
 	}
 }
 
+bool GuiGamelistOptions::launchSystemScreenSaver()
+{
+	SystemData* system = mSystem;
+	std::string systemName = system->getName();
+	// need to check if we're in a folder inside the collections bundle, to launch from there
+	if(systemName == CollectionSystemManager::get()->getCustomCollectionsBundle()->getName())
+	{
+		FileData* file = getGamelist()->getCursor(); // is GAME otherwise menuentry would have been hidden
+		// we are inside a specific collection. We want to launch for that one.
+		system = file->getSystem();
+	}
+	mWindow->startScreenSaver(system);
+	mWindow->renderScreenSaver();
+
+	delete this;
+	return true;
+}
+
 void GuiGamelistOptions::openGamelistFilter()
 {
 	mFiltersChanged = true;
 	GuiGamelistFilter* ggf = new GuiGamelistFilter(mWindow, mSystem);
 	mWindow->pushGui(ggf);
+}
+
+void GuiGamelistOptions::recreateCollection()
+{
+	CollectionSystemManager::get()->recreateCollection(mSystem);
+	delete this;
 }
 
 void GuiGamelistOptions::startEditMode()
@@ -204,7 +253,7 @@ void GuiGamelistOptions::openMetaDataEd()
 
 	std::function<void()> saveBtnFunc;
 	saveBtnFunc = [this, file] {
-		ViewController::get()->getGameListView(mSystem)->setViewportTop(-1);
+		ViewController::get()->getGameListView(mSystem)->setCursor(file, true);
 		mMetadataChanged = true;
 		ViewController::get()->getGameListView(file->getSystem())->onFileChanged(file, FILE_METADATA_CHANGED);
 	};

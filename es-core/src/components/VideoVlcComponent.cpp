@@ -300,6 +300,10 @@ void VideoVlcComponent::startVideo()
 							}
 						}
 					}
+					else
+					{
+						remove(getTitlePath().c_str());
+					}
 					PowerSaver::pause();
 					setupContext();
 
@@ -340,8 +344,7 @@ void VideoVlcComponent::stopVideo()
 void VideoVlcComponent::setMuteMode()
 {
 	Settings *cfg = Settings::getInstance();
-	if (!cfg->getBool("VideoAudio") || (cfg->getBool("ScreenSaverVideoMute") && mScreensaverMode))
-	{
-		libvlc_audio_set_mute(mMediaPlayer, 1);
+	if (!cfg->getBool("VideoAudio") || (cfg->getBool("ScreenSaverVideoMute") && mScreensaverMode)) {
+		libvlc_media_add_option(mMedia, ":no-audio");
 	}
 }

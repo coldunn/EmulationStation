@@ -284,10 +284,10 @@ void ViewController::launch(FileData* game, Vector3f center)
 		setAnimation(new LambdaAnimation(fadeFunc, 800), 0, [this, game, fadeFunc]
 		{
 			game->launchGame(mWindow);
-			setAnimation(new LambdaAnimation(fadeFunc, 800), 0, [this] { mLockInput = false; }, true);
+			setAnimation(new LambdaAnimation(fadeFunc, 800), 0, [this, game] { mLockInput = false; }, true);
 			this->onFileChanged(game, FILE_METADATA_CHANGED);
 			if (mCurrentView) {
-				this->getGameListView(game->getSystem())->setViewportTop(-1);
+				this->getGameListView(game->getSystem())->setCursor(game, true);
 				mCurrentView->onShow();
 			}
 		});
@@ -297,10 +297,10 @@ void ViewController::launch(FileData* game, Vector3f center)
 		{
 			game->launchGame(mWindow);
 			mCamera = origCamera;
-			setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 600), 0, [this] { mLockInput = false; }, true);
+			setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 600), 0, [this, game] { mLockInput = false; }, true);
 			this->onFileChanged(game, FILE_METADATA_CHANGED);
 			if (mCurrentView) {
-				this->getGameListView(game->getSystem())->setViewportTop(-1);
+				this->getGameListView(game->getSystem())->setCursor(game, true);
 				mCurrentView->onShow();
 			}
 		});
@@ -309,10 +309,10 @@ void ViewController::launch(FileData* game, Vector3f center)
 		{
 			game->launchGame(mWindow);
 			mCamera = origCamera;
-			setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this] { mLockInput = false; }, true);
+			setAnimation(new LaunchAnimation(mCamera, mFadeOpacity, center, 10), 0, [this, game] { mLockInput = false; }, true);
 			this->onFileChanged(game, FILE_METADATA_CHANGED);
 			if (mCurrentView) {
-				this->getGameListView(game->getSystem())->setViewportTop(-1);
+				this->getGameListView(game->getSystem())->setCursor(game, true);
 				mCurrentView->onShow();
 			}
 		});
@@ -330,6 +330,24 @@ void ViewController::removeGameListView(SystemData* system)
 	}
 }
 
+ViewController::GameListViewType ViewController::getGameListViewType()
+{
+	//decide type
+	GameListViewType selectedViewType = AUTOMATIC;
+
+	std::string viewPreference = Settings::getInstance()->getString("GamelistViewStyle");
+	if (viewPreference.compare("basic") == 0)
+		selectedViewType = BASIC;
+	if (viewPreference.compare("detailed") == 0)
+		selectedViewType = DETAILED;
+	if (viewPreference.compare("grid") == 0)
+		selectedViewType = GRID;
+	if (viewPreference.compare("video") == 0)
+		selectedViewType = VIDEO;
+
+	return selectedViewType;
+}
+
 std::shared_ptr<IGameListView> ViewController::getGameListView(SystemData* system)
 {
 	//if we already made one, return that one
@@ -344,17 +362,7 @@ std::shared_ptr<IGameListView> ViewController::getGameListView(SystemData* syste
 	bool themeHasVideoView = system->getTheme()->hasView("video");
 
 	//decide type
-	GameListViewType selectedViewType = AUTOMATIC;
-
-	std::string viewPreference = Settings::getInstance()->getString("GamelistViewStyle");
-	if (viewPreference.compare("basic") == 0)
-		selectedViewType = BASIC;
-	if (viewPreference.compare("detailed") == 0)
-		selectedViewType = DETAILED;
-	if (viewPreference.compare("grid") == 0)
-		selectedViewType = GRID;
-	if (viewPreference.compare("video") == 0)
-		selectedViewType = VIDEO;
+	GameListViewType selectedViewType = getGameListViewType();
 
 	if (selectedViewType == AUTOMATIC)
 	{

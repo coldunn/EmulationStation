@@ -12,11 +12,12 @@
 
 FileData* findOrCreateFile(SystemData* system, const std::string& path, FileType type)
 {
-	// first, verify that path is within the system's root folder
 	FileData* root = system->getRootFolder();
 	bool contains = false;
-	std::string relative = Utils::FileSystem::removeCommonPath(path, root->getPath(), contains, true);
+	const std::string systemPath = root->getPath();
 
+	// first, verify that path is within the system's root folder
+	std::string relative = Utils::FileSystem::removeCommonPath(path, systemPath, contains, true);
 	if(!contains)
 	{
 		LOG(LogError) << "File path \"" << path << "\" is outside system path \"" << system->getStartPath() << "\"";
@@ -24,17 +25,21 @@ FileData* findOrCreateFile(SystemData* system, const std::string& path, FileType
 	}
 
 	Utils::FileSystem::stringList pathList = Utils::FileSystem::getPathList(relative);
+
 	auto path_it = pathList.begin();
 	FileData* treeNode = root;
 	bool found = false;
+
+	// iterate over all subpaths below the provided path
 	while(path_it != pathList.end())
 	{
 		const std::unordered_map<std::string, FileData*>& children = treeNode->getChildrenByFilename();
 
-		std::string key = *path_it;
-		found = children.find(key) != children.cend();
+		std::string pathSegment = *path_it;
+		auto candidate = children.find(pathSegment);
+		found = candidate != children.cend();
 		if (found) {
-			treeNode = children.at(key);
+			treeNode = candidate->second;
 		}
 
 		// this is the end
@@ -51,8 +56,12 @@ FileData* findOrCreateFile(SystemData* system, const std::string& path, FileType
 
 			FileData* file = new FileData(type, path, system->getSystemEnvData(), system);
 
-			// skipping arcade assets from gamelist
-			if(!file->isArcadeAsset())
+			// skipping arcade assets from gamelist and add only to filesystem
+			// (fs) folders, i.e. entriess in gamelist with <folder/> and not to
+			// fs-folders which are marked as <game/> in gamelist. NB:
+			// treeNode's type (=parent) is determined by the element in the
+			// gamelist and not by the fs-type.
+			if(!file->isArcadeAsset() && treeNode->getType() == FOLDER)
 			{
 				treeNode->addChild(file);
 			}
@@ -65,12 +74,23 @@ FileData* findOrCreateFile(SystemData* system, const std::string& path, FileType
 			// if type is a folder it's gonna be empty, so don't bother
 			if(type == FOLDER)
 			{
-				LOG(LogWarning) << "gameList: folder doesn't already exist, won't create";
+				std::string absFolder = Utils::FileSystem::getAbsolutePath(pathSegment, systemPath);
+				LOG(LogWarning) << "gameList: folder " << absFolder << " absent on fs, no FileData object created. Do remove leftover in gamelist.xml to remediate this warning.";
 				return NULL;
 			}
+			// discard constellations like scummvm/game.svm/game.svm as
+			// scummvm/game.svm/ is a GAME and not a FOLDER
+			if (treeNode->getType() == GAME)
+			{
+				std::string absFolder = Utils::FileSystem::getAbsolutePath(pathSegment, systemPath);
+				LOG(LogWarning) << "gameList: trying to add game '" << absFolder << "' to a parent <game/> entry is invalid, no FileData object created. Do remove nested <game/> in gamelist.xml to remediate this warning.";
+				return NULL;
+			}
+			// create folder filedata object
+			std::string absPath = Utils::FileSystem::resolveRelativePath(treeNode->getPath() + "/" + pathSegment, systemPath, false, true);
+			FileData* folder = new FileData(FOLDER, absPath, system->getSystemEnvData(), system);
+			LOG(LogDebug) << "folder not found as FileData, adding: " << folder->getPath();
 
-			// create missing folder
-			FileData* folder = new FileData(FOLDER, Utils::FileSystem::getStem(treeNode->getPath()) + "/" + *path_it, system->getSystemEnvData(), system);
 			treeNode->addChild(folder);
 			treeNode = folder;
 		}
@@ -85,6 +105,7 @@ void parseGamelist(SystemData* system)
 {
 	bool trustGamelist = Settings::getInstance()->getBool("ParseGamelistOnly");
 	std::string xmlpath = system->getGamelistPath(false);
+	const std::vector<std::string> allowedExtensions = system->getExtensions();
 
 	if(!Utils::FileSystem::exists(xmlpath))
 		return;
@@ -117,11 +138,19 @@ void parseGamelist(SystemData* system)
 		FileType type = typeList[i];
 		for(pugi::xml_node fileNode = root.child(tag); fileNode; fileNode = fileNode.next_sibling(tag))
 		{
-			const std::string path = Utils::FileSystem::resolveRelativePath(fileNode.child("path").text().get(), relativeTo, false, true);
+			std::string path = fileNode.child("path").text().get();
+			path = Utils::FileSystem::resolveRelativePath(path, relativeTo, false, true);
 
 			if(!trustGamelist && !Utils::FileSystem::exists(path))
 			{
 				LOG(LogWarning) << "File \"" << path << "\" does not exist! Ignoring.";
+				continue;
+			}
+
+			// Check whether the file's extension is allowed in the system
+			if (i == 0 /*game*/ && std::find(allowedExtensions.cbegin(), allowedExtensions.cend(), Utils::FileSystem::getExtension(path)) == allowedExtensions.cend())
+			{
+				LOG(LogDebug) << "file " << path << " found in gamelist, but has unregistered extension";
 				continue;
 			}
 
@@ -134,7 +163,7 @@ void parseGamelist(SystemData* system)
 			else if(!file->isArcadeAsset())
 			{
 				std::string defaultName = file->metadata.get("name");
-				file->metadata = MetaDataList::createFromXML(GAME_METADATA, fileNode, relativeTo);
+				file->metadata = MetaDataList::createFromXML(file->getType() == GAME ? GAME_METADATA : FOLDER_METADATA, fileNode, relativeTo);
 
 				//make sure name gets set if one didn't exist
 				if(file->metadata.get("name").empty())
@@ -165,7 +194,8 @@ void addFileDataNode(pugi::xml_node& parent, const FileData* file, const char* t
 		//there's something useful in there so we'll keep the node, add the path
 
 		// try and make the path relative if we can so things still work if we change the rom folder location in the future
-		newNode.prepend_child("path").text().set(Utils::FileSystem::createRelativePath(file->getPath(), system->getStartPath(), false, true).c_str());
+		std::string relPath = Utils::FileSystem::createRelativePath(file->getPath(), system->getStartPath(), false, true);
+		newNode.prepend_child("path").text().set(relPath.c_str());
 	}
 }
 
@@ -216,9 +246,8 @@ void updateGamelist(SystemData* system)
 	{
 		int numUpdated = 0;
 
-		//get only files, no folders
 		std::vector<FileData*> files = rootFolder->getFilesRecursive(GAME | FOLDER);
-		
+
 		// Stage 1: iterate through all files in memory, checking for changes
 		for(std::vector<FileData*>::const_iterator fit = files.cbegin(); fit != files.cend(); ++fit)
 		{
@@ -226,13 +255,13 @@ void updateGamelist(SystemData* system)
 			// do not touch if it wasn't changed anyway
 			if (!(*fit)->metadata.wasChanged())
 				continue;
-			
+
 			// adding item to changed list
-			if ((*fit)->getType() == GAME) 
+			if ((*fit)->getType() == GAME)
 			{
-				changedGames.push_back((*fit));	
+				changedGames.push_back((*fit));
 			}
-			else 
+			else
 			{
 				changedFolders.push_back((*fit));
 			}
@@ -243,13 +272,13 @@ void updateGamelist(SystemData* system)
 		const char* tagList[2] = { "game", "folder" };
 		FileType typeList[2] = { GAME, FOLDER };
 		std::vector<FileData*> changedList[2] = { changedGames, changedFolders };
-		
+
 		for(int i = 0; i < 2; i++)
 		{
 			const char* tag = tagList[i];
 			std::vector<FileData*> changes = changedList[i];
 
-			// if changed items of this type
+			// check for changed items of this type
 			if (changes.size() > 0) {
 				// check if the item already exists in the XML
 				// if it does, remove all corresponding items before adding
@@ -266,9 +295,10 @@ void updateGamelist(SystemData* system)
 						continue;
 					}
 
+					std::string xmlpath = pathNode.text().get();
 					// apply the same transformation as in Gamelist::parseGamelist
-					std::string xmlpath = Utils::FileSystem::resolveRelativePath(pathNode.text().get(), relativeTo, false, true);
-					
+					xmlpath = Utils::FileSystem::resolveRelativePath(xmlpath, relativeTo, false, true);
+
 					for(std::vector<FileData*>::const_iterator cfit = changes.cbegin(); cfit != changes.cend(); ++cfit)
 					{
 						if(xmlpath == (*cfit)->getPath())
